@@ -1,0 +1,477 @@
+%-------------------------------------------------------------------------%
+%                                                                         %
+%                            ORBITAL MECHANICS                            %
+%                              A.Y. 2023/2024                             %
+%                                                                         %
+%                        SPACEGHETTI - GROUP 2345                         %
+%                                                                         %
+%                               ASSIGNMENT 1                              %
+%                                                                         %
+%-------------------------------------------------------------------------%
+% AUTHORS:
+% Michele Puzzolante
+% Mattia Bax
+% Giorgia Privitera
+% Carlo Vicenzetto
+%
+% The following code has been developed and tested on a PC which has OS
+% Windows 10
+%% DATA
+% PANET DEPARTURE:         JUPITER 
+% PLANET FLYBY:            MARS 
+% ARRIVAL OBJECT:          1996FG3 
+% EARLIEST DEPARTURE DATE: 01/01/2028 00:00:00  
+% LATEST ARRIVAL DATE:     01/01/2058 00:00:00
+
+%% INITIALIZZATION
+clc;
+clear; 
+close all;
+
+% Path adjustments:
+addpath(strcat(pwd,'/functions'));
+addpath(strcat(pwd,'/functions/time'));
+addpath(strcat(pwd,'/functions/texture'));
+%% DATA
+
+% Set id for the planets and the asteroid
+id_Departure_Planet = 5; % Jupiter
+id_Flyby_Planet = 4;     % Mars
+id_Arrival_Object = 40;  % Asteroid N 29
+
+% Sun gravitational constant
+muS = astroConstants(4);
+
+% Time of earliest departure and latest arrival in modified Julian day 2000
+% Earliest Departure
+EarliestDep = date2mjd2000([2028 1 1 0 0 0]);
+% Latest Arrival
+LatestArr = date2mjd2000([2058 1 1 0 0 0]);
+
+% Enable plots and saving of results
+PLOTS = 0;     % 1 - on, 0 - off
+SAVEPLOTS = 0; % 1 - on, 0 - off
+TEXT = 0;      % 1 - on, 0 - off
+
+%% PRELIMINARY TIME WINDOW DEFINITION
+% Getting ephemerides and computation of orbital period
+% Departure planet
+[KepDep, ~] = uplanet(0, id_Departure_Planet);
+TDep = 1/(86400) * 2 * pi * sqrt(KepDep(1)^3/muS); % [days]
+
+% FlyBy Planet
+[KepFlyBy, ~] = uplanet(0, id_Flyby_Planet);
+TFlyBy = 1/(86400) * 2 * pi * sqrt(KepFlyBy(1)^3/muS); % [days]
+
+% Arrival object
+[KepArr, ~] = ephNEO(0, id_Arrival_Object);
+TArr = 1/(86400) * 2 * pi * sqrt(KepArr(1)^3/muS); % [days]
+
+% Synodic periods computation
+TSyn_Dep2FlyBy = TDep * TFlyBy / abs(TDep - TFlyBy);% [days]
+TSyn_FlyBy2Arr = TFlyBy * TArr / abs(TFlyBy - TArr);% [days]
+Tsyn_Dep2Arr = TDep * TArr / abs(TDep - TArr);      % [days]
+
+fprintf('\n--------------PERIODS-----------------------------')
+fprintf('\n T Jupiter = %.4f [days]', TDep);
+fprintf('\n T Mars = %.4f [days]', TFlyBy);
+fprintf('\n T 1996FG3 = %.4f [days]', TArr);
+fprintf('\n T Syn Jupiter-Mars = %.4f [days]', TSyn_Dep2FlyBy);
+fprintf('\n T Syn Mars-1996FG3 = %.4f [days]', TSyn_FlyBy2Arr);
+fprintf('\n T Syn Jupiter-1996FG3 = %.4f [days]', Tsyn_Dep2Arr);
+fprintf('\n--------------------------------------------------')
+%% DEFINITION OF NEW TIME WINDOWS
+% Departure time window
+tDepWindow = [EarliestDep EarliestDep + TDep];
+
+% Flyby time window
+[TOF_1, ~] = HonmannTransfer(muS, KepDep(1), KepFlyBy(1));
+tFlyByWindow = tDepWindow + TOF_1/3600/24 * [0.7 1.3];
+
+% Arrival time window
+[TOF_2, ~] = HonmannTransfer(muS, KepFlyBy(1), KepArr(1) * (1 - KepArr(2)));
+tArrWindow = tFlyByWindow + TOF_2/3600/24 * [0.7 1.3];
+
+fprintf('\n--------------TIME WINDOWS-----------------------------')
+fprintf('\n Departure Time Window: ')
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(tDepWindow(1)));
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(tDepWindow(end)));
+fprintf('\n FlyBy Time Window: ')
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(tFlyByWindow(1)));
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(tFlyByWindow(end)));
+fprintf('\n Arrival Time Window: ')
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(tArrWindow(1)));
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(tArrWindow(end)));
+fprintf('\n--------------------------------------------------------')
+%% INNESTED GRID METHOD
+% This section  find the minimun dV of the total mission using a cycle with
+% 3 innested for, at every iteration of the cycle the time windows changes,
+% this change is based on the optimal dates found at the previous step
+N_innested = 3;
+%indexWhile = 0;
+N = 20;
+tD = linspace(tDepWindow(1), tDepWindow(2), N);
+tGA = linspace(tFlyByWindow(1), tFlyByWindow(2), N);
+tA = linspace(tArrWindow(1), tArrWindow(2), N);
+t_computational_start = tic();
+for indexWhile = 1 : N_innested
+    for d = 1 : N
+        for ga = 1 : N
+            for a = 1 : N
+                [DVTOT(a, ga, d), DV_Dep ,DV_GA ,DV_Arr, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~, ~] = interplanetaryTransfer(tD(d), tGA(ga), tA(a));
+            end
+        end
+    end
+    % Get the minimum with the grid method to use the solution as initial guess
+    [minDV,loc] = min(DVTOT(:));
+    fprintf('\n %d / %d, for N = %d, Dvmin = %.4f', indexWhile, N_innested, N, minDV)
+    [ii,jj,kk] = ind2sub(size(DVTOT),loc);
+    t_dep_grid = tD(kk);
+    t_ga_grid = tGA(jj);
+    t_arr_grid = tA(ii);
+    dt = (tD(2) - tD(1));
+    % Check to avoid problem in the initializzation of the departure time window
+    if kk == 1
+       tD = linspace(t_dep_grid, t_dep_grid + dt, N); 
+    else
+        if kk == N
+            tD = linspace(t_dep_grid - dt, t_dep_grid, N);
+        else
+            tD = linspace(t_dep_grid - dt, t_dep_grid + dt, N);
+        end
+    end
+    if jj == 1
+        tGA = linspace(t_ga_grid, t_ga_grid + dt, N);
+    else
+        if jj == N
+            tGA = linspace(t_ga_grid - dt, t_ga_grid, N);
+        else
+            tGA = linspace(t_ga_grid - dt, t_ga_grid + dt, N);
+        end
+    end
+
+    if ii == 1
+        tA = linspace(t_arr_grid, t_arr_grid + dt, N);
+    else
+        if ii == N
+            tA = linspace(t_arr_grid - dt, t_arr_grid, N);
+        else
+            tA = linspace(t_arr_grid - dt, t_arr_grid + dt, N);
+        end
+    end
+end
+t_computational = toc(t_computational_start);
+%% RESULTS
+t_dep_chosen = t_dep_grid;
+t_ga_chosen = t_ga_grid;
+t_arr_chosen = t_arr_grid;
+
+%% POST PROCESSING
+% In this section has been computed :
+% - Jupiter's orbit
+% - Mars' orbit
+% - 1996FG3's orbit
+% - Jupiter's orbit
+% - 1st interplanetary arc
+% - 2nd interplanetary arc
+% - All the results
+
+% AU for conversion
+AU = astroConstants(2);
+
+% Departure FULL orbit
+kep_dep_chosen = uplanet(t_dep_chosen, id_Departure_Planet);
+[rr_dep_chosen, vv_dep_chosen] = kep2car(kep_dep_chosen, muS);
+% Propagation of departure planet's orbit
+t_dep_orbit = t_dep_chosen : 1 : t_dep_chosen + TDep;
+rr_dep_orbit = zeros(3, length(t_dep_orbit));
+vv_dep_orbit = zeros(3, length(t_dep_orbit));
+for i = 1 : length(t_dep_orbit)
+    kep_dep_orbit = uplanet(t_dep_orbit(i), id_Departure_Planet);
+    [rr_dep_orbit(:, i), vv_dep_orbit(:, i)] = kep2car(kep_dep_orbit, muS);
+end
+rr_dep_chosen = rr_dep_chosen/AU;
+rr_dep_orbit = rr_dep_orbit/AU;
+
+% FlyBy planet FULL orbit
+kep_ga_chosen = uplanet(t_ga_chosen, id_Flyby_Planet);
+[rr_ga_chosen, vv_ga_chosen] = kep2car(kep_ga_chosen, muS);
+% Propagation of flyby planet's orbit
+t_ga_orbit = t_ga_chosen : 1 : t_ga_chosen + TFlyBy;
+rr_ga_orbit = zeros(3, length(t_ga_orbit));
+vv_ga_orbit = zeros(3, length(t_ga_orbit));
+for i = 1 : length(t_ga_orbit)
+    kep_ga_orbit = uplanet(t_ga_orbit(i), id_Flyby_Planet);
+    [rr_ga_orbit(:, i), vv_ga_orbit(:, i)] = kep2car(kep_ga_orbit, muS);
+end
+rr_ga_chosen = rr_ga_chosen/AU;
+rr_ga_orbit = rr_ga_orbit/AU;
+
+% Arrival object FULL orbit
+kep_arr_chosen = ephNEO(t_arr_chosen, id_Arrival_Object);
+[rr_arr_chosen, vv_arr_chosen] = kep2car(kep_arr_chosen, muS);
+% Propagation of arrival object's orbit
+t_arr_orbit = t_arr_chosen : 1 : t_arr_chosen + TArr;
+rr_arr_orbit = zeros(3, length(t_arr_orbit));
+vv_arr_orbit = zeros(3, length(t_arr_orbit));
+for i = 1 : length(t_arr_orbit)
+    kep_arr_orbit = ephNEO(t_arr_orbit(i), id_Arrival_Object);
+    [rr_arr_orbit(:, i), vv_arr_orbit(:, i)] = kep2car(kep_arr_orbit, muS);
+end
+rr_arr_chosen = rr_arr_chosen/AU;
+rr_arr_orbit = rr_arr_orbit/AU;
+
+% Departure-FlyBy-Arrival arc
+t_arc_orbit = t_dep_chosen : 1 : t_arr_chosen;
+rr_dep_arc = zeros(3, length(t_arc_orbit));
+rr_ga_arc = zeros(3, length(t_arc_orbit));
+rr_arr_arc = zeros(3, length(t_arc_orbit));
+for i = 1 : length(t_arc_orbit)
+    % Departure
+    kep_dep_arc = uplanet(t_arc_orbit(i), id_Departure_Planet);
+    [rr_dep_arc(:, i), ~] = kep2car(kep_dep_arc, muS);
+    % FlyBy
+    kep_ga_arc = uplanet(t_arc_orbit(i), id_Flyby_Planet);
+    [rr_ga_arc(:, i), ~] = kep2car(kep_ga_arc, muS);
+    % Arrival
+    kep_arr_arc = ephNEO(t_arc_orbit(i), id_Arrival_Object);
+    [rr_arr_arc(:, i), ~] = kep2car(kep_arr_arc, muS);
+end
+rr_dep_arc = rr_dep_arc/AU;
+rr_ga_arc = rr_ga_arc/AU;
+rr_arr_arc = rr_arr_arc/AU;
+
+
+[DVTOT_final, DV_Dep_final ,DV_GA_final ,DV_Arr_final, KepLeg1_final, TOF1_final, KepLeg2_final, TOF2_final, vInfM_final, vInfP_final, rp_final, aHypM_final, eHypM_final, vpM_final, aHypP_final, eHypP_final, vpP_final, ratiodV_final] = interplanetaryTransfer(t_dep_chosen, t_ga_chosen, t_arr_chosen);
+options = odeset( 'RelTol', 1e-13, 'AbsTol', 1e-14 ); % Set options for the ODE solver
+SOIMars = KepFlyBy(1) * (astroConstants(14)/astroConstants(4))^(2/5);
+
+% 1st Transfer arc
+[rr_arc1_0, vv_arc1_0] = kep2car(KepLeg1_final, muS);
+[time_arc1, arc1] = ode78(@(t,y) ode_2BP(t, y, muS), [0 TOF1_final], [rr_arc1_0; vv_arc1_0], options);
+rr_arc1 = arc1(:, 1:3)/AU; 
+rr_arc1 = rr_arc1'; 
+vv_arc1 = arc1(:, 4:6);
+vv_arc1 = vv_arc1';
+KepLeg1_final_TOF1_final = car2kep(arc1(end,1:3), arc1(end, 4:6), muS);
+% 2nd Transfer arc
+[rr_arc2_0, vv_arc2_0] = kep2car(KepLeg2_final, muS);
+[time_arc2, arc2] = ode78(@(t,y) ode_2BP(t, y, muS), [0 TOF2_final], [rr_arc2_0; vv_arc2_0], options);
+rr_arc2 = arc2(:, 1:3)/AU; 
+rr_arc2 = rr_arc2';
+vv_arc2 = arc2(:, 4:6);
+vv_arc2 = vv_arc2';
+KepLeg2_final_TOF2_final = car2kep(arc2(end,1:3), arc2(end, 4:6), muS);
+
+% FlyBy
+rrp = rp_final * [1; 0; 0];
+vvp_m = vpM_final * [0; 1; 0];
+vvp_p = vpP_final * [0; 1; 0];
+tfb_prop = 1000;
+[time_hypM, hypM] = ode78(@(t,y) ode_2BP(t, y, astroConstants(14)), [0 -tfb_prop], [rrp; vvp_m], options);
+rr_hypM = hypM(:, 1:3);
+rr_hypM = rr_hypM';
+[time_hypP, hypP] = ode78(@(t,y) ode_2BP(t, y, astroConstants(14)), [0 tfb_prop], [rrp; vvp_p], options);
+rr_hypP = hypP(:, 1:3);
+rr_hypP = rr_hypP';
+TOF_FB = FlyByTOF(aHypM_final, eHypM_final, aHypP_final, eHypP_final, rr_ga_chosen*AU);
+
+%% CONTOUR PLOTS
+if PLOTS == 1
+    Ncontour = 100;
+    t_dep_contour = linspace(t_dep_chosen-TSyn_Dep2FlyBy, t_dep_chosen+TSyn_Dep2FlyBy, Ncontour);
+    t_ga_contour = linspace(t_ga_chosen-TSyn_Dep2FlyBy, t_ga_chosen+TSyn_Dep2FlyBy, Ncontour);
+    t_arr_contour = linspace(t_arr_chosen-TSyn_Dep2FlyBy, t_arr_chosen+TSyn_Dep2FlyBy, Ncontour);
+    [~, DVtotL1, ~] = DVGrid(muS, 'P', id_Departure_Planet, 'P', id_Flyby_Planet, t_dep_contour, t_ga_contour);
+    [~, ~, DVtotL2] = DVGrid(muS, 'P', id_Flyby_Planet, 'A', id_Arrival_Object, t_ga_contour, t_arr_contour);
+    for i = 1:Ncontour
+        t_dep_contourplot(i) = datenum(mjd20002date(t_dep_contour(i)));
+        t_ga_contourplot(i) = datenum(mjd20002date(t_ga_contour(i)));
+        t_arr_contourplot(i) = datenum(mjd20002date(t_arr_contour(i)));
+    end
+    
+    
+    % Contour plot Jupiter - Mars
+    figure()
+    [C1,h1] = contour(t_dep_contourplot,t_ga_contourplot,DVtotL1',min(min(DVtotL1))+(1:1:20),'HandleVisibility','off');
+    hold on
+    plot(datenum(mjd20002date(t_dep_chosen)),datenum(mjd20002date(t_ga_chosen)),'o','LineWidth',2,'Color',[1 0 0])
+    xlabel('Departure time','Interpreter','latex','FontSize', 15);
+    ylabel('Arrival time','Interpreter','latex','FontSize', 15);
+    xtickangle(45);
+    ytickangle(45);
+    datetick('x','yyyy mmm dd', 'keeplimits')
+    datetick('y','yyyy mmm dd', 'keeplimits')
+    grid on
+    axis equal
+    title('Jupiter - Mars','Interpreter','latex','FontSize', 15)
+    hcb = colorbar;
+    hcb.Title.String = '$\Delta v$ [km/s]';
+    hcb.Title.Interpreter = 'latex';
+    hcb.Title.FontSize = 15;
+    hcb.Ticks = [4 6 8 10 12 14 16 18 20 22];
+    ha = gca;
+    ha.FontSize = 13;
+    legend('Chosen time window');
+    set(gca,'TickLabelInterpreter','latex')
+    if SAVEPLOTS == 1
+        exportgraphics(gcf,'ContourPlot_DEP.png','Resolution',600);
+    end
+    
+    % Contour plot Mars - 1996FG3
+    figure()
+    [C2,h2] = contour(t_ga_contourplot,t_arr_contourplot,DVtotL2',min(min(DVtotL2))+(1:1:20),'HandleVisibility','off');
+    hold on
+    plot(datenum(mjd20002date(t_ga_chosen)),datenum(mjd20002date(t_arr_chosen)),'o' ,'LineWidth', 2, 'Color',[1 0 0])
+    xlabel('Departure time','Interpreter','latex','FontSize', 15);
+    ylabel('Arrival time','Interpreter','latex','FontSize', 15);
+    xtickangle(45);
+    ytickangle(45);
+    datetick('x','yyyy mmm dd', 'keeplimits')
+    datetick('y','yyyy mmm dd', 'keeplimits')
+    grid on
+    axis equal
+    title('Mars - 1996FG3','Interpreter','latex','FontSize', 15)
+    hcb = colorbar;
+    hcb.Title.String = '$\Delta v$ [km/s]';
+    hcb.Title.Interpreter = 'latex';
+    hcb.Title.FontSize = 15;
+    hcb.Ticks = [4 6 8 10 12 14 16 18 20 22];
+    ha = gca;
+    ha.FontSize = 13;
+    legend('Chosen time window');
+    set(gca,'TickLabelInterpreter','latex')
+    if SAVEPLOTS == 1
+        exportgraphics(gcf,'ContourPlot_ARR.png','Resolution',600);
+    end
+end
+%% PLOTS
+if PLOTS == 1
+    % Interplanetary Transfer
+    figure()
+    hold on
+    
+    % Departure
+    plot3(rr_dep_orbit(1,:), rr_dep_orbit(2,:), rr_dep_orbit(3,:), 'LineStyle','--', 'LineWidth',0.6, 'Color',[58 86 197]/255);
+    plot3(rr_dep_arc(1,:), rr_dep_arc(2,:), rr_dep_arc(3,:), 'LineWidth',1.5, 'Color',[58 86 197]/255);
+    % FlyBy
+    plot3(rr_ga_arc(1,:), rr_ga_arc(2,:), rr_ga_arc(3,:), 'LineWidth',1.5, 'Color',[66 204 51]/255);
+    % Arrival
+    plot3(rr_arr_arc(1,:), rr_arr_arc(2,:), rr_arr_arc(3,:), 'LineWidth',1.5, 'Color',[235 47 20]/255);
+    % Leg1
+    plot3(rr_arc1(1,:), rr_arc1(2, :), rr_arc1(3, :), 'LineWidth',1.5, 'Color',[0.5 0.5 0]);
+    % Leg1
+    plot3(rr_arc2(1, :), rr_arc2(2, :), rr_arc2(3, :), 'LineWidth',1.5, 'Color',[0 0.5 0.5]);
+    % Sun
+    plotPlanet(10,1/2e6);
+    % Plot Planets
+    plotPlanet(5, 1/3e5, rr_dep_chosen(1), rr_dep_chosen(2), rr_dep_chosen(3));
+    plotPlanet(4, 1/2e4, rr_ga_chosen(1), rr_ga_chosen(2), rr_ga_chosen(3));
+    plotPlanet(11, 1/1e4, rr_arr_chosen(1), rr_arr_chosen(2), rr_arr_chosen(3));
+    hold off
+    grid on
+    title('Trajectory for interplanetary mission ','Interpreter','latex','FontSize', 15)
+    xlabel('[AU]','Interpreter','latex','FontSize', 15); ylabel('[AU]','Interpreter','latex','FontSize', 15); zlabel('[AU]','Interpreter','latex','FontSize', 15);
+    xlim([-6 6]); ylim([-6 6]); zlim([-6 6]);
+    legend('Departure planet Full orbit', 'Departure planet Arc', ...
+           'FlyBy planet Full orbit',...%'FlyBy planet Arc', ...
+           'Arrival object Full orbit', ...%'Arrival object Arc',  ...
+           '$1^{st}$ Interplanetry transfer arc', '$2^{nd}$ Interplanetry transfer arc',...
+           'Interpreter','latex','FontSize', 9);
+    set(gca,'TickLabelInterpreter','latex') 
+    view(-125.6432,42.7982)
+    % view(0, 90); For plotting xy view, use 'Location', 'northwest' on
+    % legend
+    if SAVEPLOTS == 1
+        exportgraphics(gcf,'InterplanetaryTransfer.png','Resolution',600);
+    end
+
+    figure();
+    hold on
+    % FlyBy
+    plot3(rr_hypM(1,:), rr_hypM(2, :), rr_hypM(3, :), 'LineWidth',1.5, 'Color',[0.5 0.5 0]);
+    % Leg1
+    plot3(rr_hypP(1, :), rr_hypP(2, :), rr_hypP(3, :), 'LineWidth',1.5, 'Color',[0 0.5 0.5]);
+    % Mars
+    plotPlanet(4);
+    hold off
+    grid on
+    axis equal
+    title('FlyBy','Interpreter','latex','FontSize', 15)
+    xlabel('[km]','Interpreter','latex','FontSize', 15); ylabel('[km]','Interpreter','latex','FontSize', 15); zlabel('[km]','Interpreter','latex','FontSize', 15);
+    legend('$1^{st}$ Interplanetry transfer arc', '$2^{nd}$ Interplanetry transfer arc',...
+           'Interpreter','latex','FontSize', 9, 'Location', 'southwest');
+    set(gca,'TickLabelInterpreter','latex') 
+    if SAVEPLOTS == 1
+        exportgraphics(gcf,'HyperbolicTrajectories.png','Resolution',600);
+    end
+end
+%% VALUES
+fprintf('\nNpoints = %d and Nloops = %d, Computational time = %f [s]', N, N_innested, t_computational)
+fprintf('\n-------------------RESULTS-------------------')
+fprintf('\n Departure Date: ')
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(t_dep_chosen))
+fprintf('\n %.4f [days]', t_dep_chosen)
+fprintf('\n FlyBy Date: ')
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(t_ga_chosen))
+fprintf('\n %.4f [days]', t_ga_chosen)
+fprintf('\n Arrival Date: ')
+fprintf( '%0.0f/%0.0f/%0.0f - %0.0f:%0.0f:%0.0f ', mjd20002date(t_arr_chosen))
+fprintf('\n %.4f [days]', t_arr_chosen)
+fprintf( '\n DELTAt_tot = %.4f [dys]', t_arr_chosen - t_dep_chosen)
+fprintf( '\n DELTAV_tot = %.4f [km/s]', DVTOT_final)
+fprintf( '\n DELTAV_Dep = %.4f [km/s]', DV_Dep_final)
+fprintf( '\n DELTAV_Ga = %.4e [km/s]', DV_GA_final)
+fprintf( '\n DELTAV_Arr = %.4f [km/s]', DV_Arr_final)
+fprintf( '\n ratio dvga/dvFBY = %.4e ', ratiodV_final)
+fprintf( '\n rp = %.4f [km] ', rp_final)
+fprintf( '\n TOF in SOI of Mars = %.4f [h]', TOF_FB/3600)
+fprintf('\n---------------------------------------------')
+
+fprintf('\n-------------------1st Interplanetary arc-------------------')
+fprintf( '\n a = %.4e [km]', KepLeg1_final(1))
+fprintf( '\n e = %.4f [-]', KepLeg1_final(2))
+fprintf( '\n i = %.4f [deg]', rad2deg(KepLeg1_final(3)))
+fprintf( '\n Omega = %.4f [deg]', rad2deg(KepLeg1_final(4)))
+fprintf( '\n omega = %.4f [deg]', rad2deg(KepLeg1_final(5)))
+fprintf( '\n tetha i = %.4f [deg]', rad2deg(KepLeg1_final(6)))
+fprintf( '\n tetha f = %.4f [deg]', rad2deg(KepLeg1_final_TOF1_final(6)))
+fprintf('\n-------------------2nd Interplanetary arc-------------------')
+fprintf( '\n a = %.4e [km]', KepLeg2_final(1))
+fprintf( '\n e = %.4f [-]', KepLeg2_final(2))
+fprintf( '\n i = %.4f [deg]', rad2deg(KepLeg2_final(3)))
+fprintf( '\n Omega = %.4f [deg]', rad2deg(KepLeg2_final(4)))
+fprintf( '\n omega = %.4f [deg]', rad2deg(KepLeg2_final(5)))
+fprintf( '\n tetha i = %.4f [deg]', rad2deg(KepLeg2_final(6)))
+fprintf( '\n tetha f = %.4f [deg]', rad2deg(KepLeg2_final_TOF2_final(6)))
+fprintf('\n-------------------Incoming hyerbola-------------------')
+fprintf( '\n a = %3.4f [km]', aHypM_final)
+fprintf( '\n e = %.4f [-]', eHypM_final)
+fprintf( '\n hp = %3.4f [km]', rp_final - astroConstants(24))
+fprintf( '\n deltaM = %3.4f [km]', rad2deg(2 * asin(1/eHypM_final)))
+fprintf( '\n vpM = %3.4f [km]', vpM_final)
+fprintf( '\n vInfM = %3.4f [km]', sqrt(astroConstants(id_Flyby_Planet+10)/-aHypM_final))
+fprintf('\n-------------------Outgoing hyerbola-------------------')
+fprintf( '\n a = %3.4f [km]', aHypP_final)
+fprintf( '\n e = %.4f [-]', eHypP_final)
+fprintf( '\n hp = %3.4f [km]', rp_final - astroConstants(24))
+fprintf( '\n deltaP = %3.4f [km]', rad2deg(2 * asin(1/eHypM_final)))
+fprintf( '\n vpP = %3.4f [km]', vpP_final)
+fprintf( '\n vInfP = %3.4f [km]', sqrt(astroConstants(id_Flyby_Planet+10)/-aHypP_final))
+%% SAVE RESULTS
+if TEXT == 1
+    FILE = fopen('Results_InterplanetaryMission_group_2345.txt', 'W');
+    fprintf(FILE,'\n-------------------RESULTS-------------------');
+    fprintf(FILE, '\n Departure Date: ');
+    fprintf(FILE,'\n %.4f [days]', t_dep_chosen);
+    fprintf(FILE,'\n FlyBy Date: ');
+    fprintf(FILE,'\n %.4f [days]', t_ga_chosen);
+    fprintf(FILE,'\n Arrival Date: ');
+    fprintf(FILE,'\n %.4f [days]', t_arr_chosen);
+    fprintf(FILE,'\n DELTAV_tot = %.3f [km/s]', DVTOT_final);
+    fprintf(FILE,'\n rp = %.2f [km] ', rp_final);
+    fprintf(FILE,'\n TOF in SOI of Mars = %.3f [h]', TOF_FB/3600);
+    fprintf(FILE,'\n ratio dvga/dvFBY = %.4e ', ratiodV_final);
+    fprintf(FILE,'\n---------------------------------------------');
+    fclose(FILE);
+end
