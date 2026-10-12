@@ -13,8 +13,8 @@ This repository gathers the two project assignments for the Orbital Mechanics la
 
 | Assignment | Main Theme | Key Topics |
 |---|---|---|
-| **Assignment 1** | Interplanetary Explorer Mission | Interplanetary transfers, patched conics method, powered gravity assist (flyby), optimization of total cost ($\Delta v_{tot}$)[cite: 5, 6, 7]. |
-| **Assignment 2** | Planetary Explorer Mission | Earth observation orbit analysis, perturbations, propagation in Cartesian coordinates and Gauss's planetary equations, ground track and repeating orbits[cite: 9, 11, 12]. |
+| **Assignment 1** | Interplanetary Explorer Mission | Interplanetary transfers, patched conics method, powered gravity assist (flyby), optimization of total cost ($\Delta v_{tot}$). |
+| **Assignment 2** | Planetary Explorer Mission | Earth observation orbit analysis, perturbations, propagation in Cartesian coordinates and Gauss's planetary equations, ground track and repeating orbits. |
 
 Both projects include the developed MATLAB code and the corresponding technical report.
 
